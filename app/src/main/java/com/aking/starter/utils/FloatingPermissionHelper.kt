@@ -21,7 +21,8 @@ object FloatingPermissionHelper {
      * @return Boolean 类型检查结果：true 表示已授予悬浮窗权限，false 表示未授予权限
      */
     fun checkFloatingPermission(content: Context): Boolean {
-        return Settings.canDrawOverlays(content)
+        val granted = Settings.canDrawOverlays(content)
+        return granted
     }
 
     /**
@@ -33,7 +34,7 @@ object FloatingPermissionHelper {
      *                通常为 Activity 或 Application 的上下文。
      */
     fun request(context: Context) {
-        if (!checkFloatingPermission(context)) return
+        if (checkFloatingPermission(context)) return
         // 创建一个 Intent，用于跳转到悬浮窗权限管理页面。
         context.startActivity(
             Intent(
@@ -53,7 +54,7 @@ object FloatingPermissionHelper {
      */
     fun launch(launcher: ManagedActivityResultLauncher<Intent, ActivityResult>, context: Context) {
         // 检查是否已经拥有悬浮窗权限，如果没有权限则执行以下代码块
-        if (!checkFloatingPermission(context)) return
+        if (checkFloatingPermission(context)) return
         // 创建一个意图，指向系统设置的悬浮窗权限管理页面，并包含应用包名信息
         launcher.launch(
             Intent(
