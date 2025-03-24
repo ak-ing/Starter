@@ -8,4 +8,6 @@
     <string name="text_float_window">悬浮窗</string>
     <string name="text_float_window_description">控制窗口在其它应用程序上层显示</string>
     <string name="text_float_window_features_involved">涉及的功能：悬浮窗</string>
+
+    <string name="text_start">启动</string>
 </resources>
