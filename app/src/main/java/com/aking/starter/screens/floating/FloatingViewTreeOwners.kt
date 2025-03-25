@@ -32,7 +32,9 @@ class FloatingViewTreeOwners : SavedStateRegistryOwner, OnAttachStateChangeListe
     // ReComposer
     private val coroutineContext = AndroidUiDispatcher.CurrentThread
     private val runRecomposeScope = CoroutineScope(coroutineContext)
-    val reComposer = Recomposer(coroutineContext)
+    val reComposer = Recomposer(coroutineContext).also {
+        it.pauseCompositionFrameClock()
+    }
 
     init {
         runRecomposeScope.launch(start = CoroutineStart.UNDISPATCHED) {
