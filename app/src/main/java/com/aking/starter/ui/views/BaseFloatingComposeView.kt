@@ -8,22 +8,32 @@ import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import com.aking.starter.screens.floating.FloatingViewTreeOwnersHolder
+import androidx.compose.ui.platform.compositionContext
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import com.aking.starter.screens.floating.FloatingViewTreeOwners
 
 /**
  * @author Ak
  * 2025/3/20  17:01
  */
-abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context) {
+abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context), ViewModelStoreOwner {
 
-    protected val windowManager: WindowManager by lazy { context.getSystemService(WindowManager::class.java) }
-    private val viewTreeOwnersHolder = FloatingViewTreeOwnersHolder()
+    private val windowManager: WindowManager by lazy { context.getSystemService(WindowManager::class.java) }
+
+    // viewTreeOwners
+    private var viewTreeOwners = FloatingViewTreeOwners()
+
+    // ViewModelStore
+    override val viewModelStore = ViewModelStore()
 
     init {
         this.addView(ComposeView(context).apply {
+            compositionContext = viewTreeOwners.reComposer
             setViewCompositionStrategy(ViewCompositionStrategy.Default)
             setContent { this@BaseFloatingComposeView.Content() }
         })
+        this.addOnAttachStateChangeListener(viewTreeOwners)
     }
 
     @Composable
@@ -34,7 +44,6 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context) 
      */
     open fun addToWindowManager() {
         if (isAttachedToWindow) return
-        viewTreeOwnersHolder.attachToWindow(this)
         windowManager.addView(this, windowParams)
     }
 
@@ -43,8 +52,13 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context) 
      */
     open fun removeFromWindowManager() {
         if (!isAttachedToWindow) return
-        viewTreeOwnersHolder.detachFromWindow()
         windowManager.removeView(this)
+    }
+
+    fun release() {
+        removeFromWindowManager()
+        viewModelStore.clear()
+        viewTreeOwners.release()
     }
 
     /**
