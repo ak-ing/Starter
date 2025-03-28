@@ -56,7 +56,7 @@ object HomeScreen : Screen {
             screenModel.reducer(HomeIntent.HandlePermission(granted))
         }
 
-        Column {
+        Column(modifier = Modifier.padding(8.dp)) {
             Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
                 Icon(painterResource(R.drawable.ic_safety), stringResource(R.string.text_permission))
                 Text(stringResource(R.string.text_permission_request), style = MaterialTheme.typography.displayMedium)

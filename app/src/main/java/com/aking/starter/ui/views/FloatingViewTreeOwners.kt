@@ -1,4 +1,4 @@
-package com.aking.starter.screens.floating
+package com.aking.starter.ui.views
 
 import android.view.View
 import android.view.View.OnAttachStateChangeListener
