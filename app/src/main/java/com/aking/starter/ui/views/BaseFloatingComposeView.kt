@@ -9,22 +9,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.platform.compositionContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import com.aking.starter.utils.getScreenSize
 
 /**
  * @author Ak
  * 2025/3/20  17:01
  */
-abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context), ViewModelStoreOwner {
+abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context), ViewModelStoreOwner, LifecycleOwner {
 
-    private val windowManager: WindowManager by lazy { context.getSystemService(WindowManager::class.java) }
+    protected val windowManager: WindowManager by lazy { context.getSystemService(WindowManager::class.java) }
 
     // viewTreeOwners
-    private var viewTreeOwners = FloatingViewTreeOwners()
+    private val viewTreeOwners = FloatingViewTreeOwners()
 
     // ViewModelStore
     override val viewModelStore = ViewModelStore()
+
+    override val lifecycle: Lifecycle get() = viewTreeOwners.lifecycle
 
     init {
         this.addView(ComposeView(context).apply {
@@ -56,8 +61,8 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
 
     fun release() {
         removeFromWindowManager()
-        viewModelStore.clear()
         viewTreeOwners.release()
+        viewModelStore.clear()
     }
 
     /**
@@ -77,5 +82,21 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         height = WindowManager.LayoutParams.WRAP_CONTENT
         //避免获取焦点（如果悬浮窗获取到焦点，那么悬浮窗以外的地方就不可操控了，造成假死机现象）
         flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+    }
+
+    /** 屏幕尺寸 */
+    protected val screenSize by lazy { windowManager.getScreenSize() }
+
+    protected fun returnToTheEdgeOfTheScreen() {
+        //悬浮窗的中心点
+        val centerX = (2 * windowParams.x + width) / 2
+        //在屏幕的左侧，位移到0
+        if (centerX < screenSize.x / 2f) {
+            windowParams.x = 0
+        } else {
+            //在屏幕右侧，位移到屏幕宽度-自身宽度（保证右侧贴屏幕）
+            windowParams.x = (screenSize.x - width).toInt()
+        }
+        windowManager.updateViewLayout(this, windowParams)
     }
 }

@@ -21,11 +21,11 @@ import kotlinx.coroutines.launch
  */
 class FloatingViewTreeOwners : SavedStateRegistryOwner, OnAttachStateChangeListener {
     // LifecycleRegistry
-    private lateinit var lifecycleRegistry: LifecycleRegistry
+    private val lifecycleRegistry = LifecycleRegistry(this)
     override val lifecycle: Lifecycle get() = lifecycleRegistry
 
     // SavedStateRegistry
-    private lateinit var savedStateRegistryController: SavedStateRegistryController
+    private val savedStateRegistryController = SavedStateRegistryController.create(this)
     override val savedStateRegistry: SavedStateRegistry
         get() = savedStateRegistryController.savedStateRegistry
 
@@ -36,15 +36,8 @@ class FloatingViewTreeOwners : SavedStateRegistryOwner, OnAttachStateChangeListe
         it.pauseCompositionFrameClock()
     }
 
-    init {
-        runRecomposeScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            reComposer.runRecomposeAndApplyChanges()
-        }
-    }
-
     override fun onViewAttachedToWindow(v: View) {
         initializeViewTreeOwners(v)
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         reComposer.resumeCompositionFrameClock()
     }
@@ -52,20 +45,24 @@ class FloatingViewTreeOwners : SavedStateRegistryOwner, OnAttachStateChangeListe
     override fun onViewDetachedFromWindow(v: View) {
         reComposer.pauseCompositionFrameClock()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
-    }
-
-    private fun initializeViewTreeOwners(target: View) {
-        // resetState
-        lifecycleRegistry = LifecycleRegistry(this)
-        savedStateRegistryController = SavedStateRegistryController.create(this)
-        savedStateRegistryController.performAttach()
-        savedStateRegistryController.performRestore(null)
-        target.setViewTreeLifecycleOwner(this)
-        target.setViewTreeSavedStateRegistryOwner(this)
     }
 
     fun release() {
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         reComposer.cancel()
+    }
+
+    private fun initializeViewTreeOwners(target: View) {
+        target.setViewTreeLifecycleOwner(this)
+        target.setViewTreeSavedStateRegistryOwner(this)
+
+        if (savedStateRegistry.isRestored) return
+        // init ViewTreeOwners
+        savedStateRegistryController.performAttach()
+        savedStateRegistryController.performRestore(null)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        runRecomposeScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            reComposer.runRecomposeAndApplyChanges()
+        }
     }
 }

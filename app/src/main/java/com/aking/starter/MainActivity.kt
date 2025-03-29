@@ -28,6 +28,7 @@ import cafe.adriel.voyager.navigator.Navigator
 import com.aking.starter.screens.floating.StarterFloatingComposeView
 import com.aking.starter.screens.home.HomeScreen
 import com.aking.starter.ui.theme.StarterTheme
+import com.aking.starter.ui.views.FloatingViewManager
 import com.aking.starter.utils.FloatingPermissionHelper
 import kotlinx.coroutines.launch
 
@@ -76,7 +77,7 @@ fun Host() {
 @Composable
 fun StarterFloatingActionBar(modifier: Modifier = Modifier, onNoFloatingPermission: () -> Unit) {
     val context = LocalContext.current
-    val floatingComposeView = remember { StarterFloatingComposeView(context) }
+    val floatingComposeView = FloatingViewManager.getOrCreate { StarterFloatingComposeView(context) }
     ExtendedFloatingActionButton(
         text = { Text(stringResource(R.string.text_start)) },
         icon = { Icon(Icons.AutoMirrored.Filled.Send, stringResource(R.string.text_start)) },
