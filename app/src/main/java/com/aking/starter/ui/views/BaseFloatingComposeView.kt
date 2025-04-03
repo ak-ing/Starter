@@ -11,7 +11,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -47,6 +50,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
 
     private var targetAnimateX = 0
     private var targetAnimateY = 0
+    protected var edgeState by mutableStateOf(true)
 
     /** 拖拽偏移量动画 */
     private val animOffset = Animatable(IntOffset(0, 0), IntOffset.VectorConverter)
@@ -61,6 +65,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
                     detectDragGestures(onDragStart = {
                         targetAnimateX = windowParams.x
                         targetAnimateY = windowParams.y
+                        edgeState = false
                     }, onDragEnd = {
                         coroutineScope.launch { returnToTheEdgeOfTheScreen() }
                     }) { _, dragAmount ->
@@ -142,5 +147,6 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
             windowParams.x = value.x
             windowManager.updateViewLayout(this@BaseFloatingComposeView, windowParams)
         }
+        edgeState = true
     }
 }
