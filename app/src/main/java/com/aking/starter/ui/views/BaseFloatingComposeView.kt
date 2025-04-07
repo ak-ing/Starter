@@ -17,9 +17,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.platform.compositionContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.Lifecycle
@@ -27,15 +29,21 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import com.aking.starter.utils.getScreenSize
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.absoluteValue
 
 /**
+ *  A base class for creating floating views using Jetpack Compose.
+ *
+ *  This class handles the lifecycle, window management, and drag-and-drop functionality
+ *  for a floating view that is rendered using Compose.
  * @author Ak
  * 2025/3/20  17:01
  */
 abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context), ViewModelStoreOwner, LifecycleOwner {
 
-    protected val windowManager: WindowManager by lazy { context.getSystemService(WindowManager::class.java) }
+    private val windowManager: WindowManager by lazy { context.getSystemService(WindowManager::class.java) }
 
     // viewTreeOwners
     private val viewTreeOwners = FloatingViewTreeOwners()
@@ -48,37 +56,48 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     /** 屏幕尺寸 */
     protected val screenSize by lazy { windowManager.getScreenSize() }
 
+    /** 当前停靠方向 */
+    protected var direction = Gravity.START
+
+    /** The target X coordinate for animation. */
     private var targetAnimateX = 0
+
+    /** The target Y coordinate for animation. */
     private var targetAnimateY = 0
-    protected var edgeState by mutableStateOf(true)
+
+    /** 屏幕边缘折叠状态 */
+    private var _edgeState by mutableStateOf(false)
+    val edgeState get() = _edgeState
 
     /** 拖拽偏移量动画 */
     private val animOffset = Animatable(IntOffset(0, 0), IntOffset.VectorConverter)
 
     init {
         this.addView(ComposeView(context).apply {
+            _edgeState = shrinkToEdge()
             compositionContext = viewTreeOwners.reComposer
             setViewCompositionStrategy(ViewCompositionStrategy.Default)
             setContent {
                 val coroutineScope = rememberCoroutineScope()
-                Box(modifier = Modifier.pointerInput(Unit) {
-                    detectDragGestures(onDragStart = {
-                        targetAnimateX = windowParams.x
-                        targetAnimateY = windowParams.y
-                        edgeState = false
-                    }, onDragEnd = {
-                        coroutineScope.launch { returnToTheEdgeOfTheScreen() }
-                    }) { _, dragAmount ->
-                        coroutineScope.launch { animateTo(dragAmount) }
-                    }
-                }) { this@BaseFloatingComposeView.Content() }
+                Box(
+                    modifier = Modifier.pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = { onDragStart() },
+                            onDragEnd = { onDragEnd(coroutineScope) },
+                            onDrag = { change: PointerInputChange, dragAmount: Offset ->
+                                coroutineScope.launch { onDrag(change, dragAmount, viewConfiguration) }
+                            })
+                    }) { FloatingContent() }
             }
         })
         this.addOnAttachStateChangeListener(viewTreeOwners)
     }
 
     @Composable
-    protected abstract fun Content()
+    protected abstract fun FloatingContent()
+
+    /** 是否支持在屏幕边缘折叠 */
+    protected open fun shrinkToEdge(): Boolean = false
 
     /**
      * 添加到WindowManager
@@ -102,6 +121,16 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         viewModelStore.clear()
     }
 
+    /** 收缩悬浮窗 */
+    protected fun shrink() {
+        _edgeState = true
+    }
+
+    /** 展开悬浮窗 */
+    protected fun expand() {
+        _edgeState = false
+    }
+
     /**
      * 悬浮窗参数
      */
@@ -122,7 +151,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     }
 
     /**
-     * 悬浮窗拖拽
+     * 悬浮窗拖拽动画
      */
     private suspend fun animateTo(dragAmount: Offset) {
         targetAnimateX = (targetAnimateX + dragAmount.x.toInt()).coerceIn(0, screenSize.x.toInt())
@@ -131,6 +160,61 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
             windowParams.x = value.x
             windowParams.y = value.y
             windowManager.updateViewLayout(this@BaseFloatingComposeView, windowParams)
+        }
+    }
+
+    private var deltaX = 0f
+    private var deltaY = 0f
+    private var canDrag: Boolean? = null
+
+    /**
+     * Handles the start of a drag gesture.
+     */
+    private fun onDragStart() {
+        targetAnimateX = windowParams.x
+        targetAnimateY = windowParams.y
+        // Reset these as they are used to detect if a drag should start
+        deltaX = 0f
+        deltaY = 0f
+        canDrag = if (shrinkToEdge()) {
+            if (edgeState) false else null
+        } else {
+            true
+        }
+    }
+
+    /**
+     * Handles the end of a drag gesture.
+     */
+    private fun onDragEnd(coroutineScope: CoroutineScope) {
+        coroutineScope.launch { returnToTheEdgeOfTheScreen() }
+    }
+
+    /**
+     * Handles a drag event.
+     */
+    private suspend fun onDrag(change: PointerInputChange, dragAmount: Offset, viewConfiguration: ViewConfiguration) {
+        if (canDrag == true) {
+            animateTo(dragAmount)
+            change.consume()
+        }
+        if (canDrag != null) {
+            return
+        }
+        deltaX += dragAmount.x
+        deltaY += dragAmount.y
+        if (deltaX.absoluteValue >= viewConfiguration.touchSlop || deltaY.absoluteValue >= viewConfiguration.touchSlop) {
+            canDrag = if (direction == Gravity.START && deltaX <= -viewConfiguration.touchSlop) {
+                // 向左侧收缩
+                shrink()
+                false
+            } else if (direction == Gravity.END && deltaX >= viewConfiguration.touchSlop) {
+                // 向右侧收缩
+                shrink()
+                false
+            } else {
+                true
+            }
         }
     }
 
@@ -147,6 +231,6 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
             windowParams.x = value.x
             windowManager.updateViewLayout(this@BaseFloatingComposeView, windowParams)
         }
-        edgeState = true
+        direction = if (x == 0) Gravity.START else Gravity.END
     }
 }
