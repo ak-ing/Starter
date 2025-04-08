@@ -1,6 +1,7 @@
 package com.aking.starter.ui.views
 
 import android.content.Context
+import android.graphics.PixelFormat
 import android.os.Build
 import android.view.Gravity
 import android.view.WindowManager
@@ -12,6 +13,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -56,9 +58,6 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     /** 屏幕尺寸 */
     protected val screenSize by lazy { windowManager.getScreenSize() }
 
-    /** 当前停靠方向 */
-    protected var direction = Gravity.START
-
     /** The target X coordinate for animation. */
     private var targetAnimateX = 0
 
@@ -66,8 +65,12 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     private var targetAnimateY = 0
 
     /** 屏幕边缘折叠状态 */
-    private var _edgeState by mutableStateOf(false)
     val edgeState get() = _edgeState
+    private var _edgeState by mutableStateOf(false)
+
+    /** 当前停靠方向 */
+    val direction get() = _direction
+    private var _direction by mutableIntStateOf(Gravity.START)
 
     /** 拖拽偏移量动画 */
     private val animOffset = Animatable(IntOffset(0, 0), IntOffset.VectorConverter)
@@ -79,15 +82,14 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
             setViewCompositionStrategy(ViewCompositionStrategy.Default)
             setContent {
                 val coroutineScope = rememberCoroutineScope()
-                Box(
-                    modifier = Modifier.pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = { onDragStart() },
-                            onDragEnd = { onDragEnd(coroutineScope) },
-                            onDrag = { change: PointerInputChange, dragAmount: Offset ->
-                                coroutineScope.launch { onDrag(change, dragAmount, viewConfiguration) }
-                            })
-                    }) { FloatingContent() }
+                Box(modifier = Modifier.pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { onDragStart() },
+                        onDragEnd = { onDragEnd(coroutineScope) },
+                        onDrag = { change: PointerInputChange, dragAmount: Offset ->
+                            coroutineScope.launch { onDrag(change, dragAmount, viewConfiguration) }
+                        })
+                }) { FloatingContent() }
             }
         })
         this.addOnAttachStateChangeListener(viewTreeOwners)
@@ -148,13 +150,15 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         height = WindowManager.LayoutParams.WRAP_CONTENT
         //避免获取焦点（如果悬浮窗获取到焦点，那么悬浮窗以外的地方就不可操控了，造成假死机现象）
         flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        format = PixelFormat.TRANSLUCENT
     }
 
     /**
      * 悬浮窗拖拽动画
      */
     private suspend fun animateTo(dragAmount: Offset) {
-        targetAnimateX = (targetAnimateX + dragAmount.x.toInt()).coerceIn(0, screenSize.x.toInt())
+        val dragX = if (direction == Gravity.START) dragAmount.x else -dragAmount.x
+        targetAnimateX = (targetAnimateX + dragX.toInt()).coerceIn(0, screenSize.x.toInt())
         targetAnimateY = (targetAnimateY + dragAmount.y.toInt()).coerceIn(0, screenSize.y.toInt())
         animOffset.animateTo(IntOffset(targetAnimateX, targetAnimateY)) {
             windowParams.x = value.x
@@ -221,16 +225,32 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     /**
      * 松手时，返回到屏幕边缘
      */
-    private suspend fun returnToTheEdgeOfTheScreen() {
+    private suspend fun returnToTheEdgeOfTheScreen(width: Int = this.width) {
         //悬浮窗的中心点
         val centerX = targetAnimateX + width / 2
-        //在屏幕的左侧，位移到0
-        //在屏幕右侧，位移到屏幕宽度-自身宽度（保证右侧贴屏幕）
-        val x = if (centerX < screenSize.x / 2f) 0 else (screenSize.x - width).toInt()
-        animOffset.animateTo(IntOffset(x, targetAnimateY), tween()) {
+        calculateDirection(centerX)
+        // gravity无缝切换
+        if (windowParams.gravity != (direction or Gravity.TOP)) {
+            animOffset.snapTo(IntOffset((screenSize.x - targetAnimateX - width).toInt(), targetAnimateY))
+            windowParams.gravity = direction or Gravity.TOP
+        }
+        animOffset.animateTo(IntOffset(0, targetAnimateY), tween()) {
             windowParams.x = value.x
             windowManager.updateViewLayout(this@BaseFloatingComposeView, windowParams)
         }
-        direction = if (x == 0) Gravity.START else Gravity.END
     }
+
+    /** 根据中心点和当前权重计算方向 */
+    private fun calculateDirection(centerX: Int) = when (direction) {
+        Gravity.START -> {
+            _direction = if (centerX < screenSize.x / 2f) Gravity.START else Gravity.END
+        }
+
+        Gravity.END -> {
+            _direction = if (centerX < screenSize.x / 2f) Gravity.END else Gravity.START
+        }
+
+        else -> error("direction error")
+    }
+
 }
