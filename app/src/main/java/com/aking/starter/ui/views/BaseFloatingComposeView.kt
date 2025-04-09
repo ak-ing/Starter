@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
 import android.view.Gravity
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.compose.animation.core.Animatable
@@ -12,6 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -23,13 +25,13 @@ import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.compose.ui.platform.ViewConfiguration
 import androidx.compose.ui.platform.compositionContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import com.aking.starter.utils.LocalAndroidViewConfiguration
 import com.aking.starter.utils.getScreenSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -75,6 +77,10 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     /** 拖拽偏移量动画 */
     private val animOffset = Animatable(IntOffset(0, 0), IntOffset.VectorConverter)
 
+    /** ViewConfiguration */
+    private val androidViewConfiguration = ViewConfiguration.get(context)
+    private val touchSlop = androidViewConfiguration.scaledTouchSlop
+
     init {
         this.addView(ComposeView(context).apply {
             _edgeState = shrinkToEdge()
@@ -87,9 +93,15 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
                         onDragStart = { onDragStart() },
                         onDragEnd = { onDragEnd(coroutineScope) },
                         onDrag = { change: PointerInputChange, dragAmount: Offset ->
-                            coroutineScope.launch { onDrag(change, dragAmount, viewConfiguration) }
+                            coroutineScope.launch { onDrag(change, dragAmount) }
                         })
-                }) { FloatingContent() }
+                }) {
+                    CompositionLocalProvider(
+                        LocalAndroidViewConfiguration provides androidViewConfiguration
+                    ) {
+                        FloatingContent()
+                    }
+                }
             }
         })
         this.addOnAttachStateChangeListener(viewTreeOwners)
@@ -197,7 +209,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     /**
      * Handles a drag event.
      */
-    private suspend fun onDrag(change: PointerInputChange, dragAmount: Offset, viewConfiguration: ViewConfiguration) {
+    private suspend fun onDrag(change: PointerInputChange, dragAmount: Offset) {
         if (canDrag == true) {
             animateTo(dragAmount)
             change.consume()
@@ -207,12 +219,12 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         }
         deltaX += dragAmount.x
         deltaY += dragAmount.y
-        if (deltaX.absoluteValue >= viewConfiguration.touchSlop || deltaY.absoluteValue >= viewConfiguration.touchSlop) {
-            canDrag = if (direction == Gravity.START && deltaX <= -viewConfiguration.touchSlop) {
+        if (deltaX.absoluteValue >= touchSlop || deltaY.absoluteValue >= touchSlop) {
+            canDrag = if (direction == Gravity.START && deltaX <= -touchSlop) {
                 // 向左侧收缩
                 shrink()
                 false
-            } else if (direction == Gravity.END && deltaX >= viewConfiguration.touchSlop) {
+            } else if (direction == Gravity.END && deltaX >= touchSlop) {
                 // 向右侧收缩
                 shrink()
                 false

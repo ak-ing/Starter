@@ -12,3 +12,4 @@ val Pink40 = Color(0xFF7D5260)
 
 
 val Blue = Color(0xFF465D91)
+val Background = Color.DarkGray.copy(alpha = 0.4f)
