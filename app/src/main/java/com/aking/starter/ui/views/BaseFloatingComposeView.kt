@@ -2,7 +2,9 @@ package com.aking.starter.ui.views
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
+import android.util.Log
 import android.view.Gravity
 import android.view.ViewConfiguration
 import android.view.WindowManager
@@ -88,7 +90,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
             setViewCompositionStrategy(ViewCompositionStrategy.Default)
             setContent {
                 val coroutineScope = rememberCoroutineScope()
-                Box(modifier = Modifier.pointerInput(Unit) {
+                Box(modifier = Modifier.pointerInput(edgeState) {
                     detectDragGestures(
                         onDragStart = { onDragStart() },
                         onDragEnd = { onDragEnd(coroutineScope) },
@@ -238,6 +240,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
      * 松手时，返回到屏幕边缘
      */
     private suspend fun returnToTheEdgeOfTheScreen(width: Int = this.width) {
+        Log.i("TAG", "returnToTheEdgeOfTheScreen: ")
         //悬浮窗的中心点
         val centerX = targetAnimateX + width / 2
         calculateDirection(centerX)
@@ -265,4 +268,20 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         else -> error("direction error")
     }
 
+    /** 确保与手势导航兼容 */
+    private val gestureExclusionRects = mutableListOf(Rect())
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        if (changed) {
+            updateGestureExclusion()
+        }
+    }
+
+    private fun updateGestureExclusion() {
+        // Skip this call if we're not running on Android 10+
+        if (Build.VERSION.SDK_INT < 29) return
+        getHitRect(gestureExclusionRects[0])
+        systemGestureExclusionRects = gestureExclusionRects
+    }
 }
