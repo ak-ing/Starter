@@ -6,19 +6,30 @@ import android.graphics.Rect
 import android.os.Build
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.HoverInteraction
+import androidx.compose.foundation.interaction.Interaction
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -37,7 +48,6 @@ import com.aking.starter.utils.LocalAndroidViewConfiguration
 import com.aking.starter.utils.getScreenSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import kotlin.math.absoluteValue
 
 /**
  *  A base class for creating floating views using Jetpack Compose.
@@ -81,7 +91,11 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
 
     /** ViewConfiguration */
     private val androidViewConfiguration = ViewConfiguration.get(context)
-    private val touchSlop = androidViewConfiguration.scaledTouchSlop
+    protected val touchSlop = androidViewConfiguration.scaledTouchSlop
+
+    /** 交互状态 */
+    protected val interactionSource = MutableInteractionSource()
+    protected val interactions = mutableStateListOf<Interaction>()
 
     init {
         this.addView(ComposeView(context).apply {
@@ -89,19 +103,62 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
             compositionContext = viewTreeOwners.reComposer
             setViewCompositionStrategy(ViewCompositionStrategy.Default)
             setContent {
-                val coroutineScope = rememberCoroutineScope()
-                Box(modifier = Modifier.pointerInput(edgeState) {
-                    detectDragGestures(
-                        onDragStart = { onDragStart() },
-                        onDragEnd = { onDragEnd(coroutineScope) },
-                        onDrag = { change: PointerInputChange, dragAmount: Offset ->
-                            coroutineScope.launch { onDrag(change, dragAmount) }
-                        })
-                }) {
+                val scope = rememberCoroutineScope()
+                val start = remember { DragInteraction.Start() }
+                Box(
+                    modifier = Modifier
+                        .hoverable(interactionSource)
+                        .clickable(interactionSource, indication = null, onClick = {})
+                        .pointerInput(edgeState) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { onDragStart(scope, start) },
+                                onDragEnd = { onDragEnd(scope, start) },
+                                onDragCancel = { scope.launch { interactionSource.emit(DragInteraction.Cancel(start)) } },
+                                onDrag = { change: PointerInputChange, dragAmount: Offset ->
+                                    scope.launch { onDrag(change, dragAmount) }
+                                })
+                        }) {
                     CompositionLocalProvider(
                         LocalAndroidViewConfiguration provides androidViewConfiguration
                     ) {
                         FloatingContent()
+                    }
+                }
+                LaunchedEffect(interactionSource) {
+                    interactionSource.interactions.collect { interaction ->
+                        when (interaction) {
+                            is PressInteraction.Press -> {
+                                interactions.add(interaction)
+                            }
+
+                            is PressInteraction.Release -> {
+                                interactions.remove(interaction.press)
+                            }
+
+                            is PressInteraction.Cancel -> {
+                                interactions.remove(interaction.press)
+                            }
+
+                            is HoverInteraction.Enter -> {
+                                interactions.add(interaction)
+                            }
+
+                            is HoverInteraction.Exit -> {
+                                interactions.remove(interaction.enter)
+                            }
+
+                            is DragInteraction.Start -> {
+                                interactions.add(interaction)
+                            }
+
+                            is DragInteraction.Stop -> {
+                                interactions.remove(interaction.start)
+                            }
+
+                            is DragInteraction.Cancel -> {
+                                interactions.remove(interaction.start)
+                            }
+                        }
                     }
                 }
             }
@@ -163,7 +220,8 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         width = WindowManager.LayoutParams.WRAP_CONTENT
         height = WindowManager.LayoutParams.WRAP_CONTENT
         //避免获取焦点（如果悬浮窗获取到焦点，那么悬浮窗以外的地方就不可操控了，造成假死机现象）
-        flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        flags =
+            flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
         format = PixelFormat.TRANSLUCENT
     }
 
@@ -188,52 +246,58 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     /**
      * Handles the start of a drag gesture.
      */
-    private fun onDragStart() {
-        targetAnimateX = windowParams.x
-        targetAnimateY = windowParams.y
-        // Reset these as they are used to detect if a drag should start
-        deltaX = 0f
-        deltaY = 0f
-        canDrag = if (shrinkToEdge()) {
-            if (edgeState) false else null
-        } else {
-            true
+    private fun onDragStart(coroutineScope: CoroutineScope, dragInteraction: DragInteraction.Start) {
+        coroutineScope.launch {
+            interactionSource.emit(dragInteraction)
+            targetAnimateX = windowParams.x
+            targetAnimateY = windowParams.y
+            // Reset these as they are used to detect if a drag should start
+            deltaX = 0f
+            deltaY = 0f
+            canDrag = if (shrinkToEdge()) {
+                if (edgeState) false else null
+            } else {
+                true
+            }
         }
     }
 
     /**
      * Handles the end of a drag gesture.
      */
-    private fun onDragEnd(coroutineScope: CoroutineScope) {
-        coroutineScope.launch { returnToTheEdgeOfTheScreen() }
+    private fun onDragEnd(coroutineScope: CoroutineScope, dragInteraction: DragInteraction.Start) {
+        coroutineScope.launch {
+            returnToTheEdgeOfTheScreen()
+            interactionSource.emit(DragInteraction.Stop(dragInteraction))
+        }
     }
 
     /**
      * Handles a drag event.
      */
     private suspend fun onDrag(change: PointerInputChange, dragAmount: Offset) {
-        if (canDrag == true) {
-            animateTo(dragAmount)
-            change.consume()
-        }
-        if (canDrag != null) {
-            return
-        }
-        deltaX += dragAmount.x
-        deltaY += dragAmount.y
-        if (deltaX.absoluteValue >= touchSlop || deltaY.absoluteValue >= touchSlop) {
-            canDrag = if (direction == Gravity.START && deltaX <= -touchSlop) {
-                // 向左侧收缩
-                shrink()
-                false
-            } else if (direction == Gravity.END && deltaX >= touchSlop) {
-                // 向右侧收缩
-                shrink()
-                false
-            } else {
-                true
-            }
-        }
+//        if (canDrag == true) {
+        animateTo(dragAmount)
+        change.consume()
+//        }
+//        if (canDrag != null) {
+//            return
+//        }
+//        deltaX += dragAmount.x
+//        deltaY += dragAmount.y
+//        if (deltaX.absoluteValue >= touchSlop || deltaY.absoluteValue >= touchSlop) {
+//            canDrag = if (direction == Gravity.START && deltaX <= -touchSlop) {
+//                // 向左侧滑
+//                onFling(true)
+//                false
+//            } else if (direction == Gravity.END && deltaX >= touchSlop) {
+//                // 向右侧滑
+//                onFling(false)
+//                false
+//            } else {
+//                true
+//            }
+//        }
     }
 
     /**
@@ -283,5 +347,12 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         if (Build.VERSION.SDK_INT < 29) return
         getHitRect(gestureExclusionRects[0])
         systemGestureExclusionRects = gestureExclusionRects
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_OUTSIDE) {
+            shrink()
+        }
+        return super.onTouchEvent(event)
     }
 }
