@@ -90,8 +90,9 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     private val animOffset = Animatable(IntOffset(0, 0), IntOffset.VectorConverter)
 
     /** ViewConfiguration */
-    private val androidViewConfiguration = ViewConfiguration.get(context)
-    protected val touchSlop = androidViewConfiguration.scaledTouchSlop
+    protected val viewConfiguration = ViewConfiguration.get(context)
+    protected val touchSlop = viewConfiguration.scaledTouchSlop
+    protected val edgeSlop = viewConfiguration.scaledEdgeSlop
 
     /** 交互状态 */
     protected val interactionSource = MutableInteractionSource()
@@ -119,7 +120,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
                                 })
                         }) {
                     CompositionLocalProvider(
-                        LocalAndroidViewConfiguration provides androidViewConfiguration
+                        LocalAndroidViewConfiguration provides viewConfiguration
                     ) {
                         FloatingContent()
                     }
