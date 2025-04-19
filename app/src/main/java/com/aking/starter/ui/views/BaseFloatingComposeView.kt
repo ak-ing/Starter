@@ -2,7 +2,6 @@ package com.aking.starter.ui.views
 
 import android.content.Context
 import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.os.Build
 import android.util.Log
 import android.view.Gravity
@@ -76,7 +75,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     private var targetAnimateX = 0
 
     /** The target Y coordinate for animation. */
-    private var targetAnimateY = 0
+    private var targetAnimateY = 300
 
     /** 屏幕边缘折叠状态 */
     val edgeState get() = _edgeState
@@ -85,9 +84,11 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     /** 当前停靠方向 */
     val direction get() = _direction
     private var _direction by mutableIntStateOf(Gravity.START)
+    val isLeft get() = direction == Gravity.START
 
     /** 拖拽偏移量动画 */
     private val animOffset = Animatable(IntOffset(0, 0), IntOffset.VectorConverter)
+    val dragAnimState get() = animOffset.isRunning
 
     /** ViewConfiguration */
     protected val viewConfiguration = ViewConfiguration.get(context)
@@ -111,6 +112,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
                         .hoverable(interactionSource)
                         .clickable(interactionSource, indication = null, onClick = {})
                         .pointerInput(edgeState) {
+                            if (!edgeState) return@pointerInput
                             detectDragGesturesAfterLongPress(
                                 onDragStart = { onDragStart(scope, start) },
                                 onDragEnd = { onDragEnd(scope, start) },
@@ -220,10 +222,10 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         // 设置悬浮窗宽高
         width = WindowManager.LayoutParams.WRAP_CONTENT
         height = WindowManager.LayoutParams.WRAP_CONTENT
+        y = targetAnimateY
         //避免获取焦点（如果悬浮窗获取到焦点，那么悬浮窗以外的地方就不可操控了，造成假死机现象）
         flags =
-            flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams
-                .FLAG_WATCH_OUTSIDE_TOUCH or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
         format = PixelFormat.TRANSLUCENT
     }
 
@@ -278,28 +280,8 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
      * Handles a drag event.
      */
     private suspend fun onDrag(change: PointerInputChange, dragAmount: Offset) {
-//        if (canDrag == true) {
         animateTo(dragAmount)
         change.consume()
-//        }
-//        if (canDrag != null) {
-//            return
-//        }
-//        deltaX += dragAmount.x
-//        deltaY += dragAmount.y
-//        if (deltaX.absoluteValue >= touchSlop || deltaY.absoluteValue >= touchSlop) {
-//            canDrag = if (direction == Gravity.START && deltaX <= -touchSlop) {
-//                // 向左侧滑
-//                onFling(true)
-//                false
-//            } else if (direction == Gravity.END && deltaX >= touchSlop) {
-//                // 向右侧滑
-//                onFling(false)
-//                false
-//            } else {
-//                true
-//            }
-//        }
     }
 
     /**
@@ -315,11 +297,12 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
             animOffset.snapTo(IntOffset((screenSize.x - targetAnimateX - width).toInt(), targetAnimateY))
             windowParams.gravity = calculateDirection or Gravity.TOP
         }
+        _direction = calculateDirection
         animOffset.animateTo(IntOffset(0, targetAnimateY), tween()) {
             windowParams.x = value.x
             windowManager.updateViewLayout(this@BaseFloatingComposeView, windowParams)
         }
-        _direction = calculateDirection
+
     }
 
     /** 根据中心点和当前权重计算方向 */
@@ -333,23 +316,6 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         }
 
         else -> error("direction error")
-    }
-
-    /** 确保与手势导航兼容 */
-    private val gestureExclusionRects = mutableListOf(Rect())
-
-    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-        super.onLayout(changed, left, top, right, bottom)
-        if (changed) {
-            updateGestureExclusion()
-        }
-    }
-
-    private fun updateGestureExclusion() {
-        // Skip this call if we're not running on Android 10+
-        if (Build.VERSION.SDK_INT < 29) return
-        getHitRect(gestureExclusionRects[0])
-        systemGestureExclusionRects = gestureExclusionRects
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

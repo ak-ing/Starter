@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,9 +36,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.aking.starter.ui.theme.Background
 import com.aking.starter.ui.theme.ColorEdgeEdit
 import com.aking.starter.ui.views.BaseFloatingComposeView
@@ -57,7 +62,7 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
     override fun FloatingContent() {
         val alignment by remember {
             derivedStateOf {
-                if (direction == Gravity.START) Alignment.TopStart else Alignment.TopEnd
+                if (isLeft) Alignment.TopStart else Alignment.TopEnd
             }
         }
         Box(contentAlignment = alignment) {
@@ -69,6 +74,8 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
             // 拖动状态（长按拖拽）
             val dragState by interactionSource.collectIsDraggedAsState()
 
+            // 内容是否显示
+            var visibleContent = remember { false }
             // 滑动距离
             var deltaX = remember { 0f }
             // EdgeBar偏移动画
@@ -76,15 +83,24 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
             //内容偏移动画
             val animOffset = remember { Animatable(-contentWidthPx) }
 
-            Log.i("TAG", "FloatingContent: recompose")
-
-//            LaunchedEffect(direction) {
-//                if (direction == Gravity.START) {
-//                    animOffset.snapTo(-contentWidthPx)
-//                } else {
-//                    animOffset.snapTo(contentWidthPx)
-//                }
-//            }
+            LaunchedEffect(direction) {
+                if (isLeft) {
+                    animOffset.snapTo(-contentWidthPx)
+                } else {
+                    animOffset.snapTo(contentWidthPx)
+                }
+            }
+            LaunchedEffect(edgeState) {
+                if (!edgeState) return@LaunchedEffect
+                deltaX = 0f
+                val target = if (isLeft) {
+                    (-contentWidthPx + deltaX).coerceIn(-contentWidthPx, 0f)
+                } else {
+                    (contentWidthPx + deltaX).coerceIn(0f, contentWidthPx)
+                }
+                animOffset.animateTo(target, tween())
+                edgeOffset.animateTo(0f, tween())
+            }
 
             // 屏幕边缘折叠条
             EdgeBar(
@@ -105,7 +121,8 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
                             scope.launch {
                                 interactionSource.emit(PressInteraction.Release(pressInteraction))
                                 deltaX = if (deltaX.absoluteValue >= contentWidthPx / 2) {
-                                    if (direction == Gravity.START) {
+                                    expand()
+                                    if (isLeft) {
                                         contentWidthPx
                                     } else {
                                         -contentWidthPx
@@ -113,67 +130,59 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
                                 } else {
                                     0f
                                 }
-                                Log.i("TAG", "FloatingContentaaa: onDragStopped $deltaX")
 
-                                val target = if (direction == Gravity.START)
+                                val target = if (isLeft) {
                                     (-contentWidthPx + deltaX).coerceIn(-contentWidthPx, 0f)
-                                else (contentWidthPx + deltaX).coerceIn(0f, contentWidthPx)
+                                } else {
+                                    (contentWidthPx + deltaX).coerceIn(0f, contentWidthPx)
+                                }
                                 animOffset.animateTo(target, tween())
-                                val edgeTarget = if (direction == Gravity.START)
+                                val edgeTarget = if (isLeft) {
                                     -deltaX.coerceIn(0f, edgeSlop.toFloat())
-                                else (-deltaX).coerceIn(0f, edgeSlop.toFloat())
+                                } else {
+                                    (-deltaX).coerceIn(0f, edgeSlop.toFloat())
+                                }
                                 edgeOffset.animateTo(edgeTarget, tween())
                             }
                         },
                         state = rememberDraggableState {
                             scope.launch {
                                 deltaX += it
-                                Log.i("TAG", "FloatingContentaaa: $deltaX")
-                                val b = if (direction == Gravity.START && deltaX >= 0) {
-                                    deltaX - it <= edgeSlop
-                                } else if (direction == Gravity.END && deltaX <= 0) {
-                                    deltaX - it >= -edgeSlop
-                                } else false
-                                if (b) {
-                                    val edgeTarget = if (direction == Gravity.START)
+                                var runEdge = false
+                                var runContent = false
+                                if (isLeft && deltaX >= 0) {
+                                    if (deltaX - it <= edgeSlop) {
+                                        runEdge = true
+                                    } else {
+                                        runContent = true
+                                    }
+                                } else if (!isLeft && deltaX <= 0) {
+                                    if (deltaX - it >= -edgeSlop && !visibleContent) {
+                                        runEdge = true
+                                    } else {
+                                        runContent = true
+                                    }
+                                }
+
+                                if (runEdge) {
+                                    val edgeTarget = if (isLeft) {
                                         -deltaX.coerceIn(0f, edgeSlop.toFloat())
-                                    else (-deltaX).coerceIn(0f, edgeSlop.toFloat())
+                                    } else {
+                                        (-deltaX).coerceIn(0f, edgeSlop.toFloat())
+                                    }
                                     edgeOffset.animateTo(edgeTarget)
-                                } else {
-                                    val target = if (direction == Gravity.START)
+                                }
+                                if (runContent) {
+                                    val target = if (isLeft) {
                                         (-contentWidthPx + deltaX).coerceIn(-contentWidthPx, 0f)
-                                    else (contentWidthPx + deltaX).coerceIn(0f, contentWidthPx)
+                                    } else {
+                                        (contentWidthPx + deltaX).coerceIn(0f, contentWidthPx)
+                                    }
                                     animOffset.animateTo(target)
                                 }
                             }
                         }
                     ))
-
-
-//            val deltaXTransform by remember {
-//                derivedStateOf {
-//                    Log.i("TAG", "FloatingContentbbb: deltaX $deltaX  direction $direction")
-//                    if (direction == Gravity.START) {
-//                        if (deltaX <= edgeSlop) {
-//                            return@derivedStateOf -contentWidthPx
-//                        }
-//                        (-contentWidthPx + (deltaX - edgeSlop)).coerceAtMost(0f)
-//                    } else {
-//                        if (deltaX >= -edgeSlop) {
-//                            return@derivedStateOf contentWidthPx
-//                        }
-//                        (contentWidthPx + (deltaX + edgeSlop)).coerceAtLeast(0f)
-//                    }
-//                }
-//            }
-
-//            val animOffset by animateIntOffsetAsState(IntOffset(deltaXTransform.toInt(), 0)) {
-//                contentState = if (direction == Gravity.START) {
-//                    it.x != -contentWidthPx.toInt()
-//                } else {
-//                    it.x != contentWidthPx.toInt()
-//                }
-//            }
 
             // 内容
             val pagerState = rememberPagerState(pageCount = { 4 })
@@ -183,15 +192,14 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
                     // 通过 layout 动态裁剪布局边界
                     .layout { measurable, constraints ->
                         // 计算实际可见区域
-                        val visibleWidth = if (direction == Gravity.START) {
-                            (contentWidthPx + animOffset.value) > 0
+                        visibleContent = if (isLeft) {
+                            (contentWidthPx + animOffset.value) > 0 && !dragAnimState
                         } else {
-                            (contentWidthPx - animOffset.value) > 0
+                            (contentWidthPx - animOffset.value) > 0 && !dragAnimState
                         }
-                        Log.i("TAG", "FloatingContent: contentWidthPx $visibleWidth")
-                        measureResults.getOrPut(visibleWidth) {
+                        measureResults.getOrPut(visibleContent) {
                             val placeable = measurable.measure(constraints)
-                            layout(if (visibleWidth) placeable.width else 0, placeable.height) {
+                            layout(if (visibleContent) placeable.width else 0, placeable.height) {
                                 placeable.placeRelative(0, 0)
                             }
                         }
@@ -199,7 +207,7 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
                     .graphicsLayer {
                         translationX = animOffset.value
                         alpha = 1f - (animOffset.value.absoluteValue / contentWidthPx)
-                        Log.i("TAG", "FloatingContent: contentWidthPx $contentWidthPx  ${animOffset.value}")
+//                        Log.i("TAG", "FloatingContent: contentWidthPx $contentWidthPx  ${animOffset.value}")
                     }
                     .padding(horizontal = with(density) { edgeSlop.toDp() })
                     .width(150.dp)
@@ -249,13 +257,16 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
         val density = LocalDensity.current
         // 折叠条交互动画（touch变宽）
         val widthAnima by animateDpAsState(with(density) {
-            (if (interactions.isNotEmpty()) edgeSlop else edgeSlop / 2).toDp()
+            (if (interactions.isNotEmpty()) edgeSlop * 2 else edgeSlop).toDp()
         })
+        val padding = remember { with(density) { (edgeSlop * 3).toDp() } }
 
         Box(
             modifier = modifier
-                .width(widthAnima)
+                .width(widthAnima + padding)
                 .height(100.dp)
+                .systemGestureExclusion()
+                .padding(start = if (isLeft) 0.dp else padding, end = if (isLeft) padding else 0.dp)
                 .background(if (enableDrag) ColorEdgeEdit else Background, shape = RoundedCornerShape(percent = 50))
         )
     }
