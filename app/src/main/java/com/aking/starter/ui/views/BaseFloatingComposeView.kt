@@ -222,7 +222,8 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         height = WindowManager.LayoutParams.WRAP_CONTENT
         //避免获取焦点（如果悬浮窗获取到焦点，那么悬浮窗以外的地方就不可操控了，造成假死机现象）
         flags =
-            flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+            flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams
+                .FLAG_WATCH_OUTSIDE_TOUCH or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
         format = PixelFormat.TRANSLUCENT
     }
 
@@ -308,26 +309,27 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         Log.i("TAG", "returnToTheEdgeOfTheScreen: ")
         //悬浮窗的中心点
         val centerX = targetAnimateX + width / 2
-        calculateDirection(centerX)
+        val calculateDirection = calculateDirection(centerX)
         // gravity无缝切换
-        if (windowParams.gravity != (direction or Gravity.TOP)) {
+        if (windowParams.gravity != (calculateDirection or Gravity.TOP)) {
             animOffset.snapTo(IntOffset((screenSize.x - targetAnimateX - width).toInt(), targetAnimateY))
-            windowParams.gravity = direction or Gravity.TOP
+            windowParams.gravity = calculateDirection or Gravity.TOP
         }
         animOffset.animateTo(IntOffset(0, targetAnimateY), tween()) {
             windowParams.x = value.x
             windowManager.updateViewLayout(this@BaseFloatingComposeView, windowParams)
         }
+        _direction = calculateDirection
     }
 
     /** 根据中心点和当前权重计算方向 */
     private fun calculateDirection(centerX: Int) = when (direction) {
         Gravity.START -> {
-            _direction = if (centerX < screenSize.x / 2f) Gravity.START else Gravity.END
+            if (centerX < screenSize.x / 2f) Gravity.START else Gravity.END
         }
 
         Gravity.END -> {
-            _direction = if (centerX < screenSize.x / 2f) Gravity.END else Gravity.START
+            if (centerX < screenSize.x / 2f) Gravity.END else Gravity.START
         }
 
         else -> error("direction error")
