@@ -2,7 +2,6 @@ package com.aking.starter.screens.floating
 
 import android.content.Context
 import android.util.Log
-import android.view.Gravity
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -25,24 +24,18 @@ import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import com.aking.starter.ui.theme.Background
 import com.aking.starter.ui.theme.ColorEdgeEdit
 import com.aking.starter.ui.views.BaseFloatingComposeView
@@ -60,12 +53,7 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
     override fun FloatingContent() {
-        val alignment by remember {
-            derivedStateOf {
-                if (isLeft) Alignment.TopStart else Alignment.TopEnd
-            }
-        }
-        Box(contentAlignment = alignment) {
+        Box {
             val scope = rememberCoroutineScope()
             val density = LocalDensity.current
             val contentWidthPx = with(density) { 150.dp.toPx() + edgeSlop * 2 }
@@ -257,7 +245,7 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
         val density = LocalDensity.current
         // 折叠条交互动画（touch变宽）
         val widthAnima by animateDpAsState(with(density) {
-            (if (interactions.isNotEmpty()) edgeSlop * 2 else edgeSlop).toDp()
+            (if (interactions.isEmpty()) edgeSlop else edgeSlop * 2).toDp()
         })
         val padding = remember { with(density) { (edgeSlop * 3).toDp() } }
 

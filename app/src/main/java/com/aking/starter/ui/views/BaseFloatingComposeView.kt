@@ -87,7 +87,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     val isLeft get() = direction == Gravity.START
 
     /** 拖拽偏移量动画 */
-    private val animOffset = Animatable(IntOffset(0, 0), IntOffset.VectorConverter)
+    private val animOffset = Animatable(IntOffset(targetAnimateX, targetAnimateY), IntOffset.VectorConverter)
     val dragAnimState get() = animOffset.isRunning
 
     /** ViewConfiguration */
