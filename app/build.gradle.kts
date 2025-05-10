@@ -37,6 +37,8 @@ android {
 }
 
 dependencies {
+    // icon extended
+    implementation(libs.androidx.compose.material.iconsExtended)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
