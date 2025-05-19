@@ -1,7 +1,6 @@
 package com.aking.starter.ui.views
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.util.Log
@@ -13,15 +12,30 @@ import android.widget.FrameLayout
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.HoverInteraction
+import androidx.compose.foundation.interaction.Interaction
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.platform.compositionContext
@@ -30,6 +44,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.coroutineScope
 import com.aking.starter.utils.LocalAndroidViewConfiguration
 import com.aking.starter.utils.getScreenSize
 import kotlinx.coroutines.CoroutineScope
@@ -45,7 +60,9 @@ import kotlinx.coroutines.launch
  */
 abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context), ViewModelStoreOwner, LifecycleOwner {
 
-    private val windowManager: WindowManager by lazy { context.getSystemService(WindowManager::class.java) }
+    private val windowManager: WindowManager by lazy {
+        context.getSystemService(WindowManager::class.java)
+    }
 
     // viewTreeOwners
     private val viewTreeOwners = FloatingViewTreeOwners()
@@ -62,7 +79,7 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     private var targetAnimateX = 0
 
     /** The target Y coordinate for animation. */
-    private var targetAnimateY = 300
+    private var targetAnimateY = (screenSize.y / 2).toInt()
 
     /** 屏幕边缘折叠状态 */
     val edgeState get() = _edgeState
@@ -74,23 +91,79 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     val isLeft get() = direction == Gravity.START
 
     /** 拖拽偏移量动画 */
-    protected val animOffset = Animatable(IntOffset(targetAnimateX, targetAnimateY), IntOffset.VectorConverter)
-    val dragAnimState get() = animOffset.isRunning
+    private val animOffset = Animatable(IntOffset(targetAnimateX, targetAnimateY), IntOffset.VectorConverter)
 
     /** ViewConfiguration */
     protected val viewConfiguration = ViewConfiguration.get(context)
     protected val touchSlop = viewConfiguration.scaledTouchSlop
     protected val edgeSlop = viewConfiguration.scaledEdgeSlop
 
+    /** 交互状态 */
+    protected val interactionSource = MutableInteractionSource()
+    protected val interactions = mutableStateListOf<Interaction>()
+
     init {
-        setBackgroundColor(Color.BLUE)
         this.addView(ComposeView(context).apply {
             _edgeState = shrinkToEdge()
             compositionContext = viewTreeOwners.reComposer
             setViewCompositionStrategy(ViewCompositionStrategy.Default)
             setContent {
-                CompositionLocalProvider(LocalAndroidViewConfiguration provides viewConfiguration) {
-                    FloatingContent()
+                val scope = rememberCoroutineScope()
+                val start = remember { DragInteraction.Start() }
+                Box(
+                    modifier = Modifier
+                        .hoverable(interactionSource)
+                        .clickable(interactionSource, indication = null, onClick = {})
+                        .pointerInput(edgeState) {
+                            if (!edgeState) return@pointerInput
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { onDragStart(scope, start) },
+                                onDragEnd = { onDragEnd(scope, start) },
+                                onDragCancel = { scope.launch { interactionSource.emit(DragInteraction.Cancel(start)) } },
+                                onDrag = { change: PointerInputChange, dragAmount: Offset ->
+                                    scope.launch { onDrag(change, dragAmount) }
+                                })
+                        }) {
+                    CompositionLocalProvider(LocalAndroidViewConfiguration provides viewConfiguration) {
+                        FloatingContent()
+                    }
+                }
+                LaunchedEffect(interactionSource) {
+                    interactionSource.interactions.collect { interaction ->
+                        when (interaction) {
+                            is PressInteraction.Press -> {
+                                interactions.add(interaction)
+                            }
+
+                            is PressInteraction.Release -> {
+                                interactions.remove(interaction.press)
+                            }
+
+                            is PressInteraction.Cancel -> {
+                                interactions.remove(interaction.press)
+                            }
+
+                            is HoverInteraction.Enter -> {
+                                interactions.add(interaction)
+                            }
+
+                            is HoverInteraction.Exit -> {
+                                interactions.remove(interaction.enter)
+                            }
+
+                            is DragInteraction.Start -> {
+                                interactions.add(interaction)
+                            }
+
+                            is DragInteraction.Stop -> {
+                                interactions.remove(interaction.start)
+                            }
+
+                            is DragInteraction.Cancel -> {
+                                interactions.remove(interaction.start)
+                            }
+                        }
+                    }
                 }
             }
         })
@@ -126,14 +199,18 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     }
 
     /** 收缩悬浮窗 */
-    protected fun shrink() {
+    protected suspend fun shrink() {
         _edgeState = true
+        handlerEdgeState()
     }
 
     /** 展开悬浮窗 */
-    protected fun expand() {
+    protected suspend fun expand() {
         _edgeState = false
+        handlerEdgeState()
     }
+
+    protected open suspend fun handlerEdgeState() {}
 
     /**
      * 悬浮窗参数
@@ -160,12 +237,13 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     /**
      * 悬浮窗拖拽动画
      */
-    protected suspend fun animateTo(dragAmount: Offset) {
-        targetAnimateX = (targetAnimateX + dragAmount.x.toInt())
-        targetAnimateY = (targetAnimateY + dragAmount.y.toInt())
+    private suspend fun animateTo(dragAmount: Offset) {
+        val dragX = if (direction == Gravity.START) dragAmount.x else -dragAmount.x
+        targetAnimateX = (targetAnimateX + dragX.toInt()).coerceIn(0, screenSize.x.toInt())
+        targetAnimateY = (targetAnimateY + dragAmount.y.toInt()).coerceIn(0, screenSize.y.toInt())
         animOffset.animateTo(IntOffset(targetAnimateX, targetAnimateY)) {
-            windowParams.x = value.x.coerceIn(0, screenSize.x.toInt())
-            windowParams.y = value.y.coerceIn(0, screenSize.y.toInt())
+            windowParams.x = value.x
+            windowParams.y = value.y
             windowManager.updateViewLayout(this@BaseFloatingComposeView, windowParams)
         }
     }
@@ -173,9 +251,12 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     /**
      * Handles the start of a drag gesture.
      */
-    protected fun onDragStart() {
-        targetAnimateX = windowParams.x
-        targetAnimateY = windowParams.y
+    private fun onDragStart(coroutineScope: CoroutineScope, dragInteraction: DragInteraction.Start) {
+        coroutineScope.launch {
+            interactionSource.emit(dragInteraction)
+            targetAnimateX = windowParams.x
+            targetAnimateY = windowParams.y
+        }
     }
 
     /**
@@ -184,13 +265,14 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
     private fun onDragEnd(coroutineScope: CoroutineScope, dragInteraction: DragInteraction.Start) {
         coroutineScope.launch {
             returnToTheEdgeOfTheScreen()
+            interactionSource.emit(DragInteraction.Stop(dragInteraction))
         }
     }
 
     /**
      * Handles a drag event.
      */
-    protected suspend fun onDrag(change: PointerInputChange, dragAmount: Offset) {
+    private suspend fun onDrag(change: PointerInputChange, dragAmount: Offset) {
         animateTo(dragAmount)
         change.consume()
     }
@@ -231,7 +313,9 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.action == MotionEvent.ACTION_OUTSIDE) {
-            shrink()
+            viewTreeOwners.runRecomposeScope.launch {
+                shrink()
+            }
         }
         return super.onTouchEvent(event)
     }
