@@ -44,11 +44,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
-import androidx.lifecycle.coroutineScope
 import com.aking.starter.utils.LocalAndroidViewConfiguration
 import com.aking.starter.utils.getScreenSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import android.view.DragEvent
 
 /**
  *  A base class for creating floating views using Jetpack Compose.
@@ -168,10 +168,30 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
             }
         })
         this.addOnAttachStateChangeListener(viewTreeOwners)
+        this.setOnDragListener { _, event ->
+            when (event.action) {
+                DragEvent.ACTION_DRAG_STARTED -> {
+                    // Potentially expand the view when a drag starts anywhere
+                    // This allows the TransferPanel to become visible
+                    handleGlobalDragStart()
+                    true // Indicate interest in future drag events
+                }
+                DragEvent.ACTION_DRAG_ENTERED -> {
+                    // Ensure expansion if drag enters the (possibly shrunk) view
+                    handleGlobalDragStart()
+                    true
+                }
+                // Add other cases if needed, e.g., ACTION_DRAG_ENDED to auto-shrink
+                else -> true // Default to true to keep receiving events
+            }
+        }
     }
 
     @Composable
     protected abstract fun FloatingContent()
+
+    /** Called when a global drag operation (ACTION_DRAG_STARTED or ACTION_DRAG_ENTERED) is detected. */
+    protected abstract fun handleGlobalDragStart()
 
     /** 是否支持在屏幕边缘折叠 */
     protected open fun shrinkToEdge(): Boolean = false
@@ -228,9 +248,15 @@ abstract class BaseFloatingComposeView(context: Context) : FrameLayout(context),
         width = WindowManager.LayoutParams.WRAP_CONTENT
         height = WindowManager.LayoutParams.WRAP_CONTENT
         y = targetAnimateY
-        //避免获取焦点（如果悬浮窗获取到焦点，那么悬浮窗以外的地方就不可操控了，造成假死机现象）
-        flags =
-            flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+        // FLAG_NOT_FOCUSABLE allows events to reach views behind this one.
+        // FLAG_WATCH_OUTSIDE_TOUCH is for touch events, not directly for drag.
+        // For the view to be a drag target for events outside its drawn bounds,
+        // it needs to not be FLAG_NOT_TOUCH_MODAL.
+        // However, the primary goal here is to make the floating view *aware* of a global drag
+        // to trigger its own expansion, not necessarily to be the direct system-level drop target
+        // when shrunk. The Compose `actualDragAndDropTarget` handles the drop when expanded.
+        flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS // Allows view to extend out of screen
         format = PixelFormat.TRANSLUCENT
     }
 

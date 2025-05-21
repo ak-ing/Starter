@@ -5,8 +5,9 @@ import android.util.Log
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -15,13 +16,9 @@ import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
-import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,18 +26,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.lerp
+import androidx.lifecycle.coroutineScope
 import com.aking.starter.ui.theme.Background
 import com.aking.starter.ui.theme.ColorEdgeEdit
 import com.aking.starter.ui.views.BaseFloatingComposeView
 import com.aking.starter.utils.dpValue
-import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
 
@@ -51,18 +45,27 @@ import kotlin.math.absoluteValue
 class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(context) {
 
     override suspend fun handlerEdgeState() {
-        if (edgeState) {
-            deltaX = -1f
+        if (edgeState) { // Shrink
+            deltaX = if (isLeft) -1f else 1f // Ensure it's minimal to hide
             dragTo(isRelease = true)
-        } else {
-            deltaX = contentWidthPx
+        } else { // Expand
+            deltaX = if (isLeft) contentWidthPx else -contentWidthPx
             dragTo(isRelease = true)
+        }
+    }
+
+    override fun handleGlobalDragStart() {
+        if (edgeState) { // Only expand if currently shrunk/docked
+            lifecycle.coroutineScope.launch {
+                expandView()
+            }
         }
     }
 
     // 记住交互事件（松手时需要移除）
     private val pressInteraction = PressInteraction.Press(Offset.Zero)
-    private val contentWidthPx = 150.dpValue + edgeSlop * 2
+    // Adjusted for TransferPanel (100.dp) + padding (edgeSlop * 2)
+    private val contentWidthPx = 100.dpValue + edgeSlop * 2
 
     // 滑动距离
     private var deltaX = 0f
@@ -74,9 +77,9 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
     val edgeOffset = Animatable(0f)
 
     //内容偏移动画
-    val animOffset = Animatable(-contentWidthPx)
+    val animOffset = Animatable(if (isLeft) -contentWidthPx else contentWidthPx)
 
-    @OptIn(ExperimentalFoundationApi::class)
+
     @Composable
     override fun FloatingContent() {
         Box {
@@ -85,7 +88,7 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
             // 拖动状态（长按拖拽）
             val dragState by interactionSource.collectIsDraggedAsState()
 
-            LaunchedEffect(direction) {
+            LaunchedEffect(direction, contentWidthPx) { // Add contentWidthPx dependency
                 if (isLeft) {
                     animOffset.snapTo(-contentWidthPx)
                 } else {
@@ -112,9 +115,9 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
                             scope.launch {
                                 interactionSource.emit(PressInteraction.Release(pressInteraction))
                                 if (deltaX.absoluteValue >= contentWidthPx / 2) {
-                                    expand()
+                                    expandView() // Changed from expand() to expandView() to avoid conflict
                                 } else {
-                                    shrink()
+                                    shrinkView() // Changed from shrink() to shrinkView()
                                 }
                             }
                         },
@@ -124,10 +127,8 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
                     ))
 
             // 内容
-            val pagerState = rememberPagerState(pageCount = { 4 })
-            val measureResults: MutableMap<Boolean, MeasureResult> = remember { mutableMapOf() }
-            HorizontalPager(
-                state = pagerState, modifier = Modifier
+            TransferPanel(
+                modifier = Modifier
                     // 通过 layout 动态裁剪布局边界
                     .layout { measurable, constraints ->
                         // 计算实际可见区域
@@ -136,56 +137,32 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
                         } else {
                             (contentWidthPx - animOffset.value) > 0 && !dragState
                         }
-                        measureResults.getOrPut(visibleContent) {
-                            val placeable = measurable.measure(constraints)
-                            layout(if (visibleContent) placeable.width else 0, placeable.height) {
-                                placeable.placeRelative(0, 0)
-                            }
+                        val placeable = measurable.measure(constraints)
+                        layout(if (visibleContent) placeable.width else 0, placeable.height) {
+                            placeable.placeRelative(0, 0)
                         }
                     }
                     .graphicsLayer {
                         translationX = animOffset.value
                         alpha = 1f - (animOffset.value.absoluteValue / contentWidthPx)
-//                        Log.i("TAG", "FloatingContent: contentWidthPx $contentWidthPx  ${animOffset.value}")
                     }
-                    .padding(horizontal = with(density) { edgeSlop.toDp() })
-                    .width(150.dp)
-
-            ) { page ->
-                Card(
-                    Modifier
-                        .size(200.dp)
-                        .graphicsLayer {
-                            // Calculate the absolute offset for the current page from the
-                            // scroll position. We use the absolute value which allows us to mirror
-                            // any effects for both directions
-                            Log.i(
-                                "TAG",
-                                "FloatingContent: ${pagerState.currentPage}  $page   ${pagerState.currentPageOffsetFraction}"
-                            )
-                            val pageOffset = (
-                                    (pagerState.currentPage - page) + pagerState
-                                        .currentPageOffsetFraction
-                                    ).absoluteValue
-
-                            // We animate the alpha, between 50% and 100%
-                            alpha = lerp(
-                                start = 0.5f,
-                                stop = 1f,
-                                fraction = 1f - pageOffset.coerceIn(0f, 1f)
-                            )
-                        }
-                ) {
-                    // Card content
-                    Box(
-                        Modifier
-                            .size(200.dp)
-                            .background(Color.DarkGray)
-                    ) { }
-                }
-            }
-
+            )
         }
+    }
+
+    // Public method to expand the view
+    suspend fun expandView() {
+        _edgeState = false // Ensure edgeState is updated
+        // Determine target deltaX to fully expand
+        deltaX = if (isLeft) contentWidthPx else -contentWidthPx
+        dragTo(isRelease = true)
+    }
+
+    // Public method to shrink the view
+    suspend fun shrinkView() {
+        _edgeState = true // Ensure edgeState is updated
+        deltaX = if (isLeft) -1f else 1f // Minimal delta to hide
+        dragTo(isRelease = true)
     }
 
 
@@ -258,15 +235,16 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
     fun EdgeBar(enableDrag: Boolean, modifier: Modifier = Modifier) {
         val density = LocalDensity.current
         // 折叠条交互动画（touch变宽）
-        val widthAnima by animateDpAsState(with(density) {
-            (if (interactions.isEmpty()) edgeSlop else edgeSlop * 2).toDp()
-        })
+        val widthAnima by animateDpAsState(
+            targetValue = with(density) { (if (interactions.isEmpty()) edgeSlop else edgeSlop * 2).toDp() },
+            label = "edgeWidthAnimation"
+        )
         val padding = remember { with(density) { (edgeSlop * 3).toDp() } }
 
         Box(
             modifier = modifier
                 .width(widthAnima + padding)
-                .height(100.dp)
+                .height(100.dp) // Match TransferPanel height
                 .systemGestureExclusion()
                 .padding(start = if (isLeft) 0.dp else padding, end = if (isLeft) padding else 0.dp)
                 .background(if (enableDrag) ColorEdgeEdit else Background, shape = RoundedCornerShape(percent = 50))
