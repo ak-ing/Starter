@@ -37,6 +37,9 @@ android {
 }
 
 dependencies {
+    // coil
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
     // icon extended
     implementation(libs.androidx.compose.material.iconsExtended)
 
