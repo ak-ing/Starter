@@ -1,6 +1,5 @@
 package com.aking.starter.screens.floating
 
-import android.content.ClipData
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -8,7 +7,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -18,20 +16,28 @@ import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLink
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,16 +49,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
-import androidx.compose.ui.draganddrop.DragAndDropTransferData
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.aking.starter.models.DropItem
+import com.aking.starter.screens.floating.drag.DragDropManager
 import com.aking.starter.ui.theme.Background
 import com.aking.starter.ui.theme.ColorEdgeEdit
 import com.aking.starter.ui.views.BaseFloatingComposeView
@@ -89,10 +98,13 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
     override fun FloatingContent() {
-        val viewmodel = remember { StarterViewModel() }
-        val state = viewmodel.uiState
+        val viewModel = remember { FloatingViewModel() }
+        val dragDropManager = remember { DragDropManager() }
+        val state = viewModel.uiState
+        val scope = rememberCoroutineScope()
+        val listState = rememberLazyListState()
+
         Box(contentAlignment = alignment) {
-            val scope = rememberCoroutineScope()
             val density = LocalDensity.current
             // 拖动状态（长按拖拽）
             val dragState by interactionSource.collectIsDraggedAsState()
@@ -157,60 +169,51 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
                     .padding(horizontal = with(density) { edgeSlop.toDp() })
                     .width(150.dp)
             ) {
-                val dropTarget = remember {
-                    object : DragAndDropTarget {
-                        override fun onStarted(event: DragAndDropEvent) {
-                            scope.launch { expand() }
-                        }
-
-                        override fun onEnded(event: DragAndDropEvent) {
-                            //scope.launch { shrink() }
-                        }
-
-                        override fun onDrop(event: DragAndDropEvent): Boolean {
-                            viewmodel.reducer(FloatingIntent.OnDrop(context,event))
-                            return true
-                        }
+                FloatingDropTarget(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(shape = CardDefaults.shape, color = Background),
+                    onStarted = { scope.launch { expand() } },
+                    onDrop = { event ->
+                        viewModel.reducer(FloatingIntent.OnDrop(context, event))
                     }
-                }
-
-                LazyColumn(
-                    Modifier
-                        .size(200.dp)
-                        .background(shape = CardDefaults.shape, color = Background)
-                        .dragAndDropTarget(shouldStartDragAndDrop = { true }, dropTarget)
                 ) {
-                    item {
-                        AnimatedVisibility(visible = state.dropList.isEmpty()) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                Icon(Icons.Default.AddLink, "添加")
-                                Text("文件中转站", style = MaterialTheme.typography.bodyMedium)
-                            }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .selectableGroup()
+                    ) {
+                        // 空状态显示
+                        item(key = "empty_state") {
+                            EmptyState(visible = state.groupedItems.isEmpty())
                         }
-                    }
-                    items(state.dropList, key = { it.id }) { item ->
-                        // 支持多选拖拽
-                        Box(
-                            Modifier
-                                .dragAndDropSource { _ ->
-                                    // 发起拖拽分享
-                                    viewmodel.reducer(FloatingIntent.DropData(context, item))
-                                }
-                                .padding(8.dp)
-                        ) {
-                            when (item) {
-                                is DropItem.Text -> Text(item.text, maxLines = 2)
-                                is DropItem.Image -> AsyncImage(
-                                    model = ImageRequest.Builder(context).data(item.uri).build(),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(48.dp)
-                                )
 
-                                is DropItem.FileItem -> Text("文件: ${item.uri.lastPathSegment}", maxLines = 1)
+                        // 使用 ViewModel 中的已分组数据
+                        state.groupedItems.forEach { (groupId, itemsInGroup) ->
+                            item(key = "group_header_$groupId") {
+                                GroupHeader(
+                                    groupId = groupId,
+                                    itemCount = itemsInGroup.size,
+                                    onToggleExpand = {
+                                        viewModel.reducer(FloatingIntent.ToggleGroupExpansion(groupId))
+                                    }
+                                )
+                            }
+
+                            if (groupId in state.expandedGroups) {
+                                items(
+                                    items = itemsInGroup,
+                                    key = { "item-${it.id}" }
+                                ) { item ->
+                                    DropItemContent(
+                                        item = item,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                            .animateItem()
+                                    )
+                                }
                             }
                         }
                     }
@@ -302,6 +305,137 @@ class StarterFloatingComposeView(context: Context) : BaseFloatingComposeView(con
                 .padding(start = if (isLeft) 0.dp else padding, end = if (isLeft) padding else 0.dp)
                 .background(if (enableDrag) ColorEdgeEdit else Background, shape = RoundedCornerShape(percent = 50))
         )
+    }
+
+    @Composable
+    private fun EmptyState(
+        visible: Boolean,
+        modifier: Modifier = Modifier
+    ) {
+        AnimatedVisibility(visible = visible) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = modifier.fillMaxSize()
+            ) {
+                Icon(Icons.Default.AddLink, "添加")
+                Text("文件中转站", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+
+    @Composable
+    private fun GroupHeader(
+        groupId: Long,
+        itemCount: Int,
+        onToggleExpand: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        Surface(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            tonalElevation = 2.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(8.dp)
+                    .clip(MaterialTheme.shapes.small)
+                    .selectable(
+                        selected = false,
+                        onClick = onToggleExpand
+                    ),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Group $groupId ($itemCount)",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Icon(
+                    imageVector = Icons.Default.ExpandMore,
+                    contentDescription = "展开/收起",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun DropItemContent(
+        item: DropItem,
+        modifier: Modifier = Modifier
+    ) {
+        Surface(
+            modifier = modifier,
+            shape = MaterialTheme.shapes.small,
+            tonalElevation = 1.dp
+        ) {
+            when (item) {
+                is DropItem.Text -> Text(
+                    text = item.text,
+                    maxLines = 2,
+                    modifier = Modifier.padding(8.dp)
+                )
+
+                is DropItem.Image -> AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(item.uri)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(MaterialTheme.shapes.small)
+                )
+
+                is DropItem.FileItem -> Row(
+                    modifier = Modifier.padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AddLink,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = item.uri.lastPathSegment ?: "未知文件",
+                        maxLines = 1,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun FloatingDropTarget(
+        modifier: Modifier = Modifier,
+        onStarted: (DragAndDropEvent) -> Unit = {},
+        onDrop: (DragAndDropEvent) -> Unit,
+        content: @Composable () -> Unit
+    ) {
+        val dropTarget = remember {
+            object : DragAndDropTarget {
+                override fun onStarted(event: DragAndDropEvent) = onStarted(event)
+                override fun onEnded(event: DragAndDropEvent) {}
+                override fun onDrop(event: DragAndDropEvent): Boolean {
+                    onDrop(event)
+                    return true
+                }
+            }
+        }
+        Box(
+            modifier = modifier.dragAndDropTarget(
+                shouldStartDragAndDrop = { true },
+                target = dropTarget
+            )
+        ) {
+            content()
+        }
     }
 }
 

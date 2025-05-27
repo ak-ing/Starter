@@ -2,28 +2,38 @@ package com.aking.starter.screens.floating
 
 import android.content.Context
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import com.aking.starter.models.DropItem
 
-// UI状态
 @Stable
 interface FloatingUiState {
-    val dropList: List<DropItem>
+    val items: List<DropItem>
+    val groupedItems: Map<Long, List<DropItem>>
+    val isLoading: Boolean
+    val error: String?
+    val expandedGroups: Set<Long>
 }
 
-class MutableFloatingUiState : FloatingUiState {
-    override val dropList = mutableStateListOf<DropItem>()
+internal class MutableFloatingUiState : FloatingUiState {
+    override var items: List<DropItem> by mutableStateOf(emptyList())
+    override var groupedItems: Map<Long, List<DropItem>> by mutableStateOf(emptyMap())
+    override var isLoading: Boolean by mutableStateOf(false)
+    override var error: String? by mutableStateOf(null)
+    override var expandedGroups: Set<Long> by mutableStateOf(emptySet())
 }
 
-// 用户意图
 sealed interface FloatingIntent {
-    data class OnDrop(val act: Context, val event: DragAndDropEvent) : FloatingIntent
-    data class DropData(val content: Context, val item: DropItem) : FloatingIntent
+    data class OnDrop(val context: Context, val event: DragAndDropEvent) : FloatingIntent
+    data class DropData(val context: Context, val items: List<DropItem>) : FloatingIntent
+    data object ClearAll : FloatingIntent
+    data class RemoveItem(val id: Long) : FloatingIntent
+    data class ToggleGroupExpansion(val groupId: Long) : FloatingIntent
 }
 
-// 副作用（可选）
 sealed interface FloatingEffect {
-    data class ShowMessage(val msg: String) : FloatingEffect
+    data class ShowSnackbar(val message: String) : FloatingEffect
 }
 
