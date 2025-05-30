@@ -1,8 +1,6 @@
 package com.aking.starter.screens.floating.data
 
-import android.content.Context
 import android.net.Uri
-import com.aking.starter.models.DropItem
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -13,17 +11,17 @@ class FloatingRepository {
     private var itemIdGen = 0L
     val items = MutableStateFlow<List<DropItem>>(emptyList())
 
-    suspend fun addTextItem(text: String, groupId: Long): Result<Unit> = runCatching {
+    suspend fun addTextItem(text: String): Result<Unit> = runCatching {
         items.update { currentItems ->
-            currentItems + DropItem.Text(text, ++itemIdGen, groupId)
+            currentItems + DropItem.Text(text, ++itemIdGen)
         }
     }
 
-    suspend fun addMediaItem(uri: Uri, mime: String, groupId: Long): Result<Unit> = runCatching {
+    suspend fun addMediaItem(uri: Uri, mime: String): Result<Unit> = runCatching {
         val item = if (mime.startsWith("image/")) {
-            DropItem.Image(uri, ++itemIdGen, groupId)
+            DropItem.Image(uri, ++itemIdGen)
         } else {
-            DropItem.FileItem(uri, ++itemIdGen, groupId)
+            DropItem.FileItem(uri, ++itemIdGen)
         }
         items.update { currentItems -> currentItems + item }
     }
